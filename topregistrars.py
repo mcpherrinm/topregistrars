@@ -117,7 +117,11 @@ DNS_PROVIDERS = [
     ("constellix", "Constellix"),
     ("nextdns", "NextDNS"),
     ("alidns.com", "Alibaba Cloud DNS"),
+    ("alibabadns", "Alibaba Cloud DNS"),
+    ("aliyun", "Alibaba Cloud DNS"),
     ("hichina.com", "Alibaba Cloud (HiChina)"),
+    ("oraclecloud", "Oracle Cloud (Dyn)"),
+    ("amzndns", "Amazon DNS"),
     ("dnsv", "DNSPod (Tencent)"),
     ("dnspod", "DNSPod (Tencent)"),
     ("qcloud", "Tencent Cloud"),
@@ -160,16 +164,18 @@ REGISTRAR_ALIASES = [
     ("enom", "eNom (Tucows)"),
     ("cloudflare", "Cloudflare"),
     ("gandi", "Gandi"),
-    ("google", "Google Domains / Squarespace"),
+    ("google llc", "Google"),
     ("squarespace domains", "Squarespace"),
     ("amazon registrar", "Amazon Registrar"),
     ("network solutions", "Network Solutions"),
     ("web.com", "Web.com"),
     ("register.com", "Register.com"),
-    ("1&1", "IONOS (1&1)"),
-    ("1and1", "IONOS (1&1)"),
+    ("1&1", "IONOS"),
+    ("1and1", "IONOS"),
     ("ionos", "IONOS"),
     ("ovh", "OVH"),
+    ("gname", "Gname"),             # Gname.com Pte. Ltd. — 'name.com' would misclaim it
+    ("trustname", "Trustname"),     # Trustname.com — 'name.com' would misclaim it
     ("name.com", "Name.com"),
     ("dynadot", "Dynadot"),
     ("porkbun", "Porkbun"),
@@ -194,6 +200,7 @@ REGISTRAR_ALIASES = [
     ("wixpress", "Wix"),
     ("wix.com", "Wix"),
     ("register.it", "Register.it"),
+    ("safenames", "SafeNames"),     # 'ename' substring wrongly matched "SafeNames Ltd."
     ("ename", "Ename"),
     ("bizcn", "Bizcn"),
     ("epik", "Epik"),
@@ -275,15 +282,38 @@ def normalize_registrar(name: str) -> str:
     for pat, canon in REGISTRAR_ALIASES:
         if pat in low:
             return canon
-    # Trim common corporate suffixes / boilerplate.
+    # Trim common corporate suffixes / boilerplate (Anglo + common EU forms, so
+    # "Nameshield SAS" and "NAMESHIELD" collapse to one registrar).
     cleaned = re.sub(
-        r"[,\.]?\s*(inc\.?|llc\.?|ltd\.?|limited|gmbh|co\.?|corp\.?|s\.a\.?|"
-        r"s\.r\.l\.?|b\.v\.?|pty|plc|co\.,? ?ltd\.?)\b.*$",
+        r"[,\.]?\s*(inc\.?|llc\.?|ltd\.?|limited|gmbh|corp\.?|co\.,? ?ltd\.?|co\.?|"
+        r"s\.?a\.?s\.?u?|sarl|s\.?r\.?l\.?|s\.?p\.?a\.?|s\.a\.?|b\.v\.?|pty|plc)\b.*$",
         "",
         name.strip(),
         flags=re.IGNORECASE,
     ).strip(" ,.-")
     return cleaned or name.strip()
+
+
+def merge_case_variants(records):
+    """Collapse registrar labels that differ only by letter case into one display
+    form. Registries hand back the same registrar in different casing (e.g.
+    "EURODNS" vs "EuroDNS", "NAMESHIELD" vs "Nameshield SAS"), which would
+    otherwise split one registrar across two buckets. Prefer a mixed-case form,
+    then the most common, then the shortest."""
+    from collections import Counter, defaultdict
+    groups = defaultdict(Counter)
+    for r in records:
+        groups[r["registrar"].lower()][r["registrar"]] += 1
+    canon = {}
+    for key, forms in groups.items():
+        if len(forms) > 1:
+            canon[key] = max(forms.items(),
+                             key=lambda it: (not it[0].isupper() and not it[0].islower(),
+                                             it[1], -len(it[0])))[0]
+    for r in records:
+        c = canon.get(r["registrar"].lower())
+        if c:
+            r["registrar"] = c
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +587,7 @@ def main():
     flush()
 
     ordered = [results[dom] for _, dom in rows if dom in results]
+    merge_case_variants(ordered)
     out = {
         "generated": datetime.now(timezone.utc).isoformat(),
         "list_url": args.list_url,
