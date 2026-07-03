@@ -104,6 +104,27 @@
   }
   a.tag:hover { color: var(--fg); background: var(--line); }
   #error { padding: 40px; text-align: center; color: #f0883e; }
+
+  /* Row-hover info box (native HTML Popover API, shown on hover) — surfaces
+     the raw, un-mapped registrar and nameservers behind the mapped values.
+     Rendered in the top layer so it escapes the table's clipping/sticky
+     stacking; pointer-events:none so it never steals the hover. */
+  #rawPopover {
+    position: fixed; margin: 0; inset: auto; pointer-events: none;
+    width: max-content; max-width: min(440px, calc(100vw - 20px));
+    max-height: calc(100vh - 20px); overflow: hidden;
+    background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px 15px; box-shadow: 0 12px 34px rgba(0,0,0,.5);
+  }
+  #rawPopover h3 { margin: 0 0 2px; font-size: 15px; font-weight: 600; word-break: break-all; }
+  #rawPopover .sub { color: var(--muted); font-size: 12px; margin-bottom: 13px; }
+  #rawPopover dl { display: grid; grid-template-columns: max-content 1fr; gap: 11px 16px; margin: 0; align-items: start; }
+  #rawPopover dt { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+  #rawPopover dd { margin: 0; word-break: break-word; }
+  #rawPopover .map { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  #rawPopover ul.ns { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  #rawPopover ul.ns li { padding: 1px 0; }
 </style>
 </head>
 <body>
@@ -130,10 +151,14 @@
   <table id="mainTable"></table>
 </main>
 
+<div id="rawPopover" popover="manual"></div>
+
 <script>
 "use strict";
 
 let DATA = [];
+let byDomain = new Map();   // domain -> full record, for the raw-data popover
+let hoverDomain = null;     // domain currently shown in the hover info box
 let META = {};
 let activeTab = "domains";
 let filters = [];          // [{type:"domain|registrar|dns|tld", value}]
@@ -244,7 +269,7 @@ function buildDomains() {
   const cols = [["rank", "Rank", "num", "70px"], ["domain", "Domain", ""], ["tld", "TLD", "", "88px"],
                 ["registrar", "Registrar", ""], ["dns_host", "DNS Host", ""]];
   const renderer = d =>
-    `<tr><td class="num">${d.rank ?? ""}</td>` +
+    `<tr class="drow" data-domain="${esc(d.domain)}"><td class="num">${d.rank ?? ""}</td>` +
     `<td>${fcell("domain", d.domain)}</td>` +
     `<td>${fcell("tld", d.tld, "tag")}</td>` +
     `<td>${fcell("registrar", d.registrar || "Unknown")}</td>` +
@@ -276,6 +301,7 @@ function renderActive() {
     : activeTab === "dns" ? buildAgg(d => d.dns_host, "DNS Host", state.dnsSort, "dns")
     : buildAgg(d => d.tld, "TLD", state.tldSort, "tld");
 
+  hideRawPopover();          // the hovered row is about to be replaced
   activeRows = b.rows;
   activeRenderer = b.renderer;
   ncols = b.cols.length;
@@ -368,6 +394,48 @@ function switchTab(tab) {
   renderActive();
 }
 
+// ---- raw-data hover info box (native HTML Popover API) -------------------
+// Hovering a domain row shows its un-mapped source data (registrar_raw, IANA
+// id, nameservers) alongside the mapped values displayed in the table.
+function showRawPopover(row, clientX) {
+  const d = byDomain.get(row.dataset.domain);
+  if (!d || d.domain === hoverDomain) return;   // nothing to do / already shown
+  hoverDomain = d.domain;
+  const pop = document.getElementById("rawPopover");
+  const ns = (d.nameservers && d.nameservers.length)
+    ? `<ul class="ns">${d.nameservers.map(n => `<li>${esc(n)}</li>`).join("")}</ul>`
+    : `<span class="muted">—</span>`;
+  pop.innerHTML =
+    `<h3>${esc(d.domain)}</h3>` +
+    `<div class="sub">Rank #${esc(d.rank)} · .${esc(d.tld)}</div>` +
+    `<dl>` +
+      `<dt>Registrar</dt><dd>${esc(d.registrar_raw || "Unknown")}` +
+        (d.registrar ? `<div class="map">mapped → ${esc(d.registrar)}</div>` : "") + `</dd>` +
+      `<dt>IANA ID</dt><dd>${d.iana_id ? esc(d.iana_id) : '<span class="muted">—</span>'}</dd>` +
+      `<dt>Nameservers</dt><dd>${ns}` +
+        (d.dns_host ? `<div class="map">mapped → ${esc(d.dns_host)}</div>` : "") + `</dd>` +
+    `</dl>`;
+
+  // Show (once), then anchor below the row near the cursor and clamp/flip
+  // into the viewport (8px margin).
+  if (!pop.matches(":popover-open")) pop.showPopover();
+  const m = 8;
+  const rect = row.getBoundingClientRect();
+  const pr = pop.getBoundingClientRect();
+  let left = Math.max(m, Math.min(clientX + 12, window.innerWidth - pr.width - m));
+  let top = rect.bottom + 6;
+  if (top + pr.height + m > window.innerHeight) top = rect.top - pr.height - 6;
+  top = Math.max(m, top);
+  pop.style.left = left + "px";
+  pop.style.top = top + "px";
+}
+
+function hideRawPopover() {
+  hoverDomain = null;
+  const pop = document.getElementById("rawPopover");
+  if (pop.matches(":popover-open")) pop.hidePopover();
+}
+
 function setStick() {
   document.documentElement.style.setProperty("--stick", document.getElementById("tabbar").offsetHeight + "px");
 }
@@ -395,8 +463,18 @@ function initControls() {
     }
   });
 
+  // Hovering a domain row shows its raw source data in the info box; moving
+  // off any data row (onto the header, a gap, or out of the table) hides it.
+  const tbl = document.getElementById("mainTable");
+  tbl.addEventListener("mouseover", e => {
+    const row = e.target.closest("tr[data-domain]");
+    if (row) showRawPopover(row, e.clientX);
+    else hideRawPopover();
+  });
+  tbl.addEventListener("mouseleave", hideRawPopover);
+
   let af = 0;
-  window.addEventListener("scroll", () => { if (!af) af = requestAnimationFrame(() => { af = 0; updateWindow(false); }); }, { passive: true });
+  window.addEventListener("scroll", () => { hideRawPopover(); if (!af) af = requestAnimationFrame(() => { af = 0; updateWindow(false); }); }, { passive: true });
   window.addEventListener("resize", () => { setStick(); updateWindow(true); });
   setStick();
 }
@@ -405,6 +483,7 @@ fetch("data.json", { cache: "no-store" })
   .then(r => { if (!r.ok) throw new Error("HTTP " + r.status + " loading data.json"); return r.json(); })
   .then(j => {
     META = j; DATA = j.domains || [];
+    byDomain = new Map(DATA.map(d => [d.domain, d]));
     const gen = j.generated ? new Date(j.generated).toLocaleString() : "?";
     document.getElementById("meta").textContent =
       `${DATA.length.toLocaleString()} domains · top ${(j.limit || DATA.length).toLocaleString()} of Tranco · generated ${gen}`;
