@@ -8,145 +8,182 @@
   :root {
     --bg: #0f1419; --panel: #1a2029; --panel2: #222b36; --line: #2e3945;
     --fg: #e6edf3; --muted: #8b98a5; --accent: #4c9aff; --accent2: #3fb950;
-    --bar: #2d5a8c;
+    --bar: #2d5a8c; --stick: 0px;
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; }
   body {
-    margin: 0; background: var(--bg); color: var(--fg);
+    background: var(--bg); color: var(--fg);
     font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* Single scroll context: only the page scrolls, and its full height is
+       reserved up front (spacer rows), so the scrollbar never jumps as rows
+       virtualize in. No inner overflow:auto panes, so no nested scrollbar. */
   }
   header {
-    padding: 20px 24px; border-bottom: 1px solid var(--line);
-    display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px;
+    padding: 18px 24px 14px;
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
   }
   header h1 { font-size: 18px; margin: 0; font-weight: 600; }
   header .meta { color: var(--muted); font-size: 12px; }
-  .controls { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-  select, input[type=search] {
-    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 6px; padding: 7px 10px; font-size: 13px;
+
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 14px; padding: 0 24px 18px; max-width: 1400px; margin: 0 auto;
   }
-  main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 24px; }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
-  .card .n { font-size: 26px; font-weight: 700; }
-  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
-  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-  section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-  section.panel > h2 {
-    font-size: 14px; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; gap: 8px; font-weight: 600;
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card .n { font-size: 24px; font-weight: 700; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+
+  /* Sticky tab bar — the only sticky chrome; column headers dock right beneath it. */
+  .tabbar {
+    position: sticky; top: 0; z-index: 20; background: var(--bg);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 24px;
   }
-  section.panel > h2 .count { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tab {
+    background: transparent; color: var(--muted); border: 1px solid transparent;
+    border-radius: 8px; padding: 7px 13px; font-size: 13px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; gap: 8px;
+  }
+  .tab:hover { color: var(--fg); background: var(--panel); }
+  .tab.active { color: var(--fg); background: var(--panel); border-color: var(--line); }
+  .badge { background: var(--panel2); color: var(--muted); border-radius: 20px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+  .tab.active .badge { background: var(--accent); color: #04121f; }
+
+  /* Applied-filter chips (replaces the old search box + TLD dropdown). */
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1 1 300px; min-width: 0; }
+  .filters .hint { color: var(--muted); font-size: 12px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 20px; padding: 3px 4px 3px 10px; font-size: 12px; max-width: 100%;
+  }
+  .chip-type { text-transform: uppercase; letter-spacing: .03em; font-size: 10px; font-weight: 700; color: var(--muted); }
+  .chip[data-type="tld"]       .chip-type { color: #6cb6ff; }
+  .chip[data-type="registrar"] .chip-type { color: #7ee787; }
+  .chip[data-type="dns"]       .chip-type { color: #e3b341; }
+  .chip[data-type="domain"]    .chip-type { color: #ff9bce; }
+  .chip-val { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip-x {
+    border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1;
+    width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .chip-x:hover { background: var(--line); color: var(--fg); }
+  .clear-all { background: transparent; border: 0; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 4px; }
+  .clear-all:hover { text-decoration: underline; }
+
+  main { max-width: 1400px; margin: 0 auto; padding: 0 24px 40px; }
+  .caption { font-size: 12px; padding: 12px 2px 8px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 13px; table-layout: fixed; }
+  th, td {
+    text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  thead th {
+    color: var(--muted); font-weight: 600; cursor: pointer; user-select: none;
+    position: sticky; top: var(--stick); z-index: 10; background: var(--panel);
+    box-shadow: 0 1px 0 var(--line);
+  }
   th.sorted::after { content: " ▾"; color: var(--accent); }
   th.sorted.asc::after { content: " ▴"; }
   tbody tr:hover { background: var(--panel2); }
+  tr.spacer, tr.spacer:hover { background: transparent; }
+  tr.spacer td { padding: 0; border: 0; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .barcell { position: relative; min-width: 120px; }
+  .barcell { position: relative; }
   .bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); opacity: .35; z-index: 0; }
   .barcell span { position: relative; z-index: 1; }
-  .scroll { max-height: 520px; overflow: auto; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+  /* Click-to-filter cells */
+  a.f { color: inherit; text-decoration: none; cursor: pointer; }
+  a.f:hover { color: var(--accent); text-decoration: underline; }
   .muted { color: var(--muted); }
-  .pager { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); font-size: 13px; }
-  .pager button {
-    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
-    border-radius: 6px; padding: 5px 12px; cursor: pointer;
+  a.tag {
+    display: inline-block; padding: 1px 7px; border-radius: 20px; background: var(--panel2);
+    font-size: 11px; color: var(--muted); cursor: pointer; text-decoration: none;
   }
-  .pager button:disabled { opacity: .4; cursor: default; }
-  .tag { display: inline-block; padding: 1px 7px; border-radius: 20px; background: var(--panel2); font-size: 11px; color: var(--muted); }
+  a.tag:hover { color: var(--fg); background: var(--line); }
   #error { padding: 40px; text-align: center; color: #f0883e; }
-  .fullwidth { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>Registrar &amp; DNS Host Dashboard</h1>
-    <div class="meta" id="meta">loading…</div>
-  </div>
-  <div class="controls">
-    <label>TLD:
-      <select id="tldFilter"><option value="__all__">All TLDs</option></select>
-    </label>
-    <input type="search" id="search" placeholder="Search domain / registrar / DNS…" style="width: 260px">
-  </div>
+  <h1>Registrar &amp; DNS Host Dashboard</h1>
+  <div class="meta" id="meta">loading…</div>
 </header>
+
+<div class="cards" id="cards"></div>
+
+<nav class="tabbar" id="tabbar">
+  <div class="tabs">
+    <button class="tab active" data-tab="domains">Domains <span class="badge" id="b-domains"></span></button>
+    <button class="tab" data-tab="reg">By Registrar <span class="badge" id="b-reg"></span></button>
+    <button class="tab" data-tab="dns">By DNS Host <span class="badge" id="b-dns"></span></button>
+    <button class="tab" data-tab="tld">By TLD <span class="badge" id="b-tld"></span></button>
+  </div>
+  <div class="filters" id="filters"></div>
+</nav>
 
 <main>
   <div id="error" style="display:none"></div>
-  <div class="cards" id="cards"></div>
-
-  <div class="grid">
-    <section class="panel">
-      <h2>By Registrar <span class="count" id="regCount"></span></h2>
-      <div class="scroll"><table id="regTable"></table></div>
-    </section>
-    <section class="panel">
-      <h2>By DNS Host <span class="count" id="dnsCount"></span></h2>
-      <div class="scroll"><table id="dnsTable"></table></div>
-    </section>
-    <section class="panel fullwidth">
-      <h2>By TLD <span class="count" id="tldCount"></span></h2>
-      <div class="scroll"><table id="tldTable"></table></div>
-    </section>
-  </div>
-
-  <section class="panel">
-    <h2>Domains <span class="count" id="domCount"></span></h2>
-    <div class="scroll"><table id="domTable"></table></div>
-    <div class="pager">
-      <button id="prev">‹ Prev</button>
-      <span id="pageInfo" class="muted"></span>
-      <button id="next">Next ›</button>
-      <span style="margin-left:auto" class="muted">rows per page:</span>
-      <select id="pageSize">
-        <option>50</option><option selected>100</option><option>250</option><option>500</option>
-      </select>
-    </div>
-  </section>
+  <div id="caption" class="caption muted"></div>
+  <table id="mainTable"></table>
 </main>
 
 <script>
 "use strict";
 
-let DATA = [];          // all domain records
+let DATA = [];
 let META = {};
+let activeTab = "domains";
+let filters = [];          // [{type:"domain|registrar|dns|tld", value}]
+
+// virtual-scroll state for the currently shown table
+let activeRows = [];
+let activeRenderer = null;
+let ncols = 5;
+let rowH = 34;             // measured after first paint; ~uniform (single-line rows)
+let winStart = -1, winEnd = -1;
+let needMeasure = true;
+const OVERSCAN = 8;
+
 const state = {
-  tld: "__all__",
-  q: "",
-  page: 0,
-  pageSize: 100,
   domSort: { key: "rank", asc: true },
   regSort: { key: "count", asc: false },
   dnsSort: { key: "count", asc: false },
   tldSort: { key: "count", asc: false },
 };
+const ASC_KEYS = new Set(["name", "_rank", "rank", "domain", "tld", "registrar", "dns_host"]);
+const FTYPE_LABEL = { domain: "Domain", registrar: "Registrar", dns: "DNS", tld: "TLD" };
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-// ---- filtering -----------------------------------------------------------
+// The value of a record along a filter dimension (matches the aggregate keys).
+function fieldFor(type, d) {
+  return type === "domain" ? d.domain
+    : type === "registrar" ? (d.registrar || "Unknown")
+    : type === "dns" ? (d.dns_host || "Unknown")
+    : d.tld;
+}
+
+// ---- filtering: OR within a dimension, AND across dimensions -------------
 function filtered() {
-  const q = state.q.trim().toLowerCase();
+  if (!filters.length) return DATA;
+  const groups = new Map();
+  for (const f of filters) {
+    if (!groups.has(f.type)) groups.set(f.type, new Set());
+    groups.get(f.type).add(f.value);
+  }
   return DATA.filter(d => {
-    if (state.tld !== "__all__" && d.tld !== state.tld) return false;
-    if (q) {
-      const hay = (d.domain + " " + (d.registrar || "") + " " + (d.dns_host || "")).toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
+    for (const [type, vals] of groups) if (!vals.has(fieldFor(type, d))) return false;
     return true;
   });
 }
 
-// ---- aggregation ---------------------------------------------------------
+// ---- aggregation & sorting ----------------------------------------------
 function aggregate(rows, keyFn) {
   const m = new Map();
   for (const r of rows) {
@@ -164,97 +201,151 @@ function sortRows(rows, sort) {
     if (typeof av === "string") { av = av.toLowerCase(); bv = (bv || "").toLowerCase(); }
     if (av < bv) return -1 * dir;
     if (av > bv) return 1 * dir;
-    // tiebreak by name/domain
     const at = (a.name || a.domain || "").toLowerCase(), bt = (b.name || b.domain || "").toLowerCase();
     return at < bt ? -1 : at > bt ? 1 : 0;
   });
 }
 
-// ---- rendering: aggregation tables --------------------------------------
-function renderAgg(tableId, rows, sort, label, onSortChange, clickFilter) {
-  sortRows(rows, sort);
-  const total = rows.reduce((s, r) => s + r.count, 0);
-  const max = rows.reduce((m, r) => Math.max(m, r.count), 0) || 1;
-  const th = (key, txt, cls) =>
-    `<th data-key="${key}" class="${cls || ""} ${sort.key === key ? "sorted " + (sort.asc ? "asc" : "") : ""}">${txt}</th>`;
-  let html = "<thead><tr>" +
-    th("name", label) + th("count", "Count", "num") + th("count", "Share", "num") +
-    "</tr></thead><tbody>";
-  for (const r of rows) {
-    const pct = total ? (100 * r.count / total) : 0;
-    const w = (100 * r.count / max).toFixed(1);
-    html += `<tr>` +
-      `<td>${clickFilter ? `<a href="#" data-fval="${esc(r.name)}">${esc(r.name)}</a>` : esc(r.name)}</td>` +
-      `<td class="num barcell"><div class="bar" style="width:${w}%"></div><span>${r.count.toLocaleString()}</span></td>` +
-      `<td class="num">${pct.toFixed(1)}%</td></tr>`;
-  }
-  html += "</tbody>";
-  const el = document.getElementById(tableId);
-  el.innerHTML = html;
-  el.querySelectorAll("th").forEach(th =>
-    th.onclick = () => {
-      const key = th.dataset.key;
-      if (sort.key === key) sort.asc = !sort.asc;
-      else { sort.key = key; sort.asc = key === "name"; }
-      onSortChange();
-    });
-  if (clickFilter) {
-    el.querySelectorAll("a[data-fval]").forEach(a =>
-      a.onclick = e => { e.preventDefault(); clickFilter(a.dataset.fval); });
-  }
-  return rows.length;
+function isUnknownName(n) { return /^unknown\b/i.test(String(n)); }
+
+// Aggregate + attach stable popularity rank (#) and cumulative share.
+// "Unknown" is excluded from rank and cumulative (but still listed, pinned to
+// the bottom, with its true population share).
+function computeAgg(keyFn, sort) {
+  const rows = aggregate(filtered(), keyFn);
+  const grandTotal = rows.reduce((s, r) => s + r.count, 0) || 1;
+  const known = rows.filter(r => !isUnknownName(r.name));
+  const unknown = rows.filter(r => isUnknownName(r.name));
+  const knownTotal = known.reduce((s, r) => s + r.count, 0) || 1;
+  const ranked = [...known].sort((a, b) =>
+    b.count - a.count || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1));
+  let run = 0;
+  ranked.forEach((r, i) => { r._rank = i + 1; run += r.count; r._cum = 100 * run / knownTotal; });
+  unknown.forEach(r => { r._rank = null; r._cum = null; });
+  rows.forEach(r => { r._share = 100 * r.count / grandTotal; });
+  sortRows(known, sort);
+  return { display: known.concat(unknown), unique: rows.length, max: Math.max(1, ...rows.map(r => r.count)) };
 }
 
-// ---- rendering: domains table -------------------------------------------
-function renderDomains(rows) {
-  sortRows(rows, state.domSort);
-  const size = state.pageSize;
-  const pages = Math.max(1, Math.ceil(rows.length / size));
-  if (state.page >= pages) state.page = pages - 1;
-  if (state.page < 0) state.page = 0;
-  const start = state.page * size;
-  const slice = rows.slice(start, start + size);
-
-  const cols = [
-    ["rank", "Rank", "num"], ["domain", "Domain", ""], ["tld", "TLD", ""],
-    ["registrar", "Registrar", ""], ["dns_host", "DNS Host", ""],
-  ];
-  const s = state.domSort;
-  let html = "<thead><tr>" + cols.map(([k, t, cls]) =>
-    `<th data-key="${k}" class="${cls} ${s.key === k ? "sorted " + (s.asc ? "asc" : "") : ""}">${t}</th>`).join("") +
-    "</tr></thead><tbody>";
-  for (const d of slice) {
-    html += `<tr>` +
-      `<td class="num">${d.rank ?? ""}</td>` +
-      `<td><a href="https://${esc(d.domain)}" target="_blank" rel="noopener">${esc(d.domain)}</a></td>` +
-      `<td><span class="tag">${esc(d.tld)}</span></td>` +
-      `<td>${esc(d.registrar)}</td>` +
-      `<td>${esc(d.dns_host)}</td></tr>`;
-  }
-  html += "</tbody>";
-  const el = document.getElementById("domTable");
-  el.innerHTML = html;
-  el.querySelectorAll("th").forEach(th =>
-    th.onclick = () => {
-      const key = th.dataset.key;
-      if (s.key === key) s.asc = !s.asc;
-      else { s.key = key; s.asc = true; }
-      renderDomains(filtered());
-    });
-
-  document.getElementById("domCount").textContent = rows.length.toLocaleString() + " domains";
-  document.getElementById("pageInfo").textContent =
-    `page ${state.page + 1} / ${pages}  ·  showing ${slice.length ? start + 1 : 0}–${start + slice.length}`;
-  document.getElementById("prev").disabled = state.page <= 0;
-  document.getElementById("next").disabled = state.page >= pages - 1;
+// ---- table builders ------------------------------------------------------
+function thCell(key, label, cls, sort) {
+  return `<th data-key="${key}" class="${cls || ""} ${sort.key === key ? "sorted " + (sort.asc ? "asc" : "") : ""}">${label}</th>`;
+}
+function headHtml(cols, sort) {
+  const colgroup = "<colgroup>" + cols.map(c => c[3] ? `<col style="width:${c[3]}">` : "<col>").join("") + "</colgroup>";
+  return colgroup + "<thead><tr>" + cols.map(c => thCell(c[0], c[1], c[2], sort)).join("") + "</tr></thead>";
+}
+function fcell(type, value, cls) {
+  return `<a class="${cls || "f"}" href="#" data-ft="${type}" data-fv="${esc(value)}">${esc(value)}</a>`;
 }
 
-// ---- master render -------------------------------------------------------
-function renderAll() {
+function buildDomains() {
+  const rows = sortRows(filtered(), state.domSort);
+  const cols = [["rank", "Rank", "num", "70px"], ["domain", "Domain", ""], ["tld", "TLD", "", "88px"],
+                ["registrar", "Registrar", ""], ["dns_host", "DNS Host", ""]];
+  const renderer = d =>
+    `<tr><td class="num">${d.rank ?? ""}</td>` +
+    `<td>${fcell("domain", d.domain)}</td>` +
+    `<td>${fcell("tld", d.tld, "tag")}</td>` +
+    `<td>${fcell("registrar", d.registrar || "Unknown")}</td>` +
+    `<td>${fcell("dns", d.dns_host || "Unknown")}</td></tr>`;
+  return { head: headHtml(cols, state.domSort), cols, rows, renderer, count: rows.length, noun: "domains" };
+}
+
+function buildAgg(keyFn, label, sort, filterType) {
+  const { display, unique, max } = computeAgg(keyFn, sort);
+  const cols = [["_rank", "#", "num", "60px"], ["name", label, ""], ["count", "Count", "num", "150px"],
+                ["_share", "Share", "num", "90px"], ["_cum", "Cumulative", "num", "120px"]];
+  const renderer = r =>
+    `<tr><td class="num muted">${r._rank ?? "—"}</td>` +
+    `<td>${fcell(filterType, r.name)}</td>` +
+    `<td class="num barcell"><div class="bar" style="width:${(100 * r.count / max).toFixed(1)}%"></div><span>${r.count.toLocaleString()}</span></td>` +
+    `<td class="num">${r._share.toFixed(1)}%</td>` +
+    `<td class="num">${r._cum == null ? "—" : r._cum.toFixed(1) + "%"}</td></tr>`;
+  return { head: headHtml(cols, sort), cols, rows: display, renderer, count: unique, noun: "unique" };
+}
+
+// ---- render the active table (virtualized) -------------------------------
+function activeSort() {
+  return { domains: state.domSort, reg: state.regSort, dns: state.dnsSort, tld: state.tldSort }[activeTab];
+}
+
+function renderActive() {
+  const b = activeTab === "domains" ? buildDomains()
+    : activeTab === "reg" ? buildAgg(d => d.registrar, "Registrar", state.regSort, "registrar")
+    : activeTab === "dns" ? buildAgg(d => d.dns_host, "DNS Host", state.dnsSort, "dns")
+    : buildAgg(d => d.tld, "TLD", state.tldSort, "tld");
+
+  activeRows = b.rows;
+  activeRenderer = b.renderer;
+  ncols = b.cols.length;
+  document.getElementById("caption").textContent = `${b.count.toLocaleString()} ${b.noun}`;
+  document.getElementById("mainTable").innerHTML = b.head + '<tbody id="mainTbody"></tbody>';
+
+  window.scrollTo({ top: 0 });
+  winStart = winEnd = -1;
+  needMeasure = true;
+  updateWindow(true);
+}
+
+// Render only the rows intersecting the viewport (± overscan). Reserved height =
+// total * rowH is held constant via top/bottom spacer <tr>s, so the page height
+// and scrollbar stay fixed regardless of scroll position.
+function updateWindow(force) {
+  const table = document.getElementById("mainTable");
+  const tbody = document.getElementById("mainTbody");
+  if (!tbody) return;
+  const total = activeRows.length;
+  const thead = table.tHead;
+  const bodyTop = table.getBoundingClientRect().top + window.scrollY + (thead ? thead.offsetHeight : 0);
+
+  let end = Math.min(total, Math.ceil((window.scrollY + window.innerHeight - bodyTop) / rowH) + OVERSCAN);
+  let start = Math.max(0, Math.floor((window.scrollY - bodyTop) / rowH) - OVERSCAN);
+  end = Math.max(0, end);
+  start = Math.min(start, end);
+  if (!force && start === winStart && end === winEnd) return;
+  winStart = start; winEnd = end;
+
+  let html = `<tr class="spacer" style="height:${start * rowH}px"><td colspan="${ncols}"></td></tr>`;
+  for (let i = start; i < end; i++) html += activeRenderer(activeRows[i], i);
+  html += `<tr class="spacer" style="height:${(total - end) * rowH}px"><td colspan="${ncols}"></td></tr>`;
+  tbody.innerHTML = html;
+
+  if (needMeasure && end > start) {
+    needMeasure = false;
+    const sample = tbody.querySelector("tr:not(.spacer)");
+    const h = sample && sample.getBoundingClientRect().height;
+    if (h > 4 && Math.abs(h - rowH) > 0.5) { rowH = h; updateWindow(true); }
+  }
+}
+
+// ---- filter chips --------------------------------------------------------
+function renderFilters() {
+  const el = document.getElementById("filters");
+  if (!filters.length) {
+    el.innerHTML = '<span class="hint">Click any domain, registrar, DNS host, or TLD in the tables to add a filter.</span>';
+    return;
+  }
+  let html = filters.map((f, i) =>
+    `<span class="chip" data-type="${f.type}"><span class="chip-type">${FTYPE_LABEL[f.type]}</span>` +
+    `<span class="chip-val">${esc(f.value)}</span>` +
+    `<button class="chip-x" data-i="${i}" title="Remove filter" aria-label="Remove filter">×</button></span>`).join("");
+  if (filters.length > 1) html += `<button class="clear-all" data-clear="1">Clear all</button>`;
+  el.innerHTML = html;
+}
+
+function addFilter(type, value) {
+  if (filters.some(f => f.type === type && f.value === value)) return;  // already applied
+  filters.push({ type, value });
+  refresh();
+}
+
+// ---- summary cards + tab badges + full refresh --------------------------
+function refresh() {
+  renderFilters();
+  setStick();               // chip rows can change the tab bar height
   const rows = filtered();
-
-  // cards
-  const uniq = (f) => new Set(rows.map(f)).size;
+  const uniq = f => new Set(rows.map(f)).size;
   document.getElementById("cards").innerHTML = [
     [rows.length.toLocaleString(), "Domains"],
     [uniq(d => d.registrar), "Registrars"],
@@ -262,51 +353,52 @@ function renderAll() {
     [uniq(d => d.tld), "TLDs"],
   ].map(([n, l]) => `<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
-  const nReg = renderAgg("regTable", aggregate(rows, d => d.registrar), state.regSort, "Registrar",
-    () => document.getElementById("regCount").textContent =
-      renderAgg("regTable", aggregate(rows, d => d.registrar), state.regSort, "Registrar", () => {}, filterByRegistrar) + " unique",
-    filterByRegistrar);
-  document.getElementById("regCount").textContent = nReg + " unique";
-
-  const nDns = renderAgg("dnsTable", aggregate(rows, d => d.dns_host), state.dnsSort, "DNS Host",
-    () => document.getElementById("dnsCount").textContent =
-      renderAgg("dnsTable", aggregate(rows, d => d.dns_host), state.dnsSort, "DNS Host", () => {}, filterByDns) + " unique",
-    filterByDns);
-  document.getElementById("dnsCount").textContent = nDns + " unique";
-
-  const nTld = renderAgg("tldTable", aggregate(rows, d => d.tld), state.tldSort, "TLD",
-    () => document.getElementById("tldCount").textContent =
-      renderAgg("tldTable", aggregate(rows, d => d.tld), state.tldSort, "TLD", () => {}, selectTld) + " unique",
-    selectTld);
-  document.getElementById("tldCount").textContent = nTld + " unique";
-
-  renderDomains(rows);
+  document.getElementById("b-domains").textContent = rows.length.toLocaleString();
+  document.getElementById("b-reg").textContent = uniq(d => d.registrar).toLocaleString();
+  document.getElementById("b-dns").textContent = uniq(d => d.dns_host).toLocaleString();
+  document.getElementById("b-tld").textContent = uniq(d => d.tld).toLocaleString();
+  renderActive();
 }
 
-// ---- filter helpers (clicking rows) -------------------------------------
-function filterByRegistrar(v) { document.getElementById("search").value = v; state.q = v; state.page = 0; renderAll(); }
-function filterByDns(v) { document.getElementById("search").value = v; state.q = v; state.page = 0; renderAll(); }
-function selectTld(v) { document.getElementById("tldFilter").value = v; state.tld = v; state.page = 0; renderAll(); }
+// ---- interactions --------------------------------------------------------
+function switchTab(tab) {
+  if (tab === activeTab) return;
+  activeTab = tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+  renderActive();
+}
 
-// ---- init ----------------------------------------------------------------
+function setStick() {
+  document.documentElement.style.setProperty("--stick", document.getElementById("tabbar").offsetHeight + "px");
+}
+
 function initControls() {
-  // TLD dropdown, ordered by frequency
-  const counts = aggregate(DATA, d => d.tld).sort((a, b) => b.count - a.count);
-  const sel = document.getElementById("tldFilter");
-  for (const { name, count } of counts) {
-    const o = document.createElement("option");
-    o.value = name; o.textContent = `.${name} (${count.toLocaleString()})`;
-    sel.appendChild(o);
-  }
-  sel.onchange = () => { state.tld = sel.value; state.page = 0; renderAll(); };
+  document.querySelectorAll(".tab").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
 
-  let t;
-  const search = document.getElementById("search");
-  search.oninput = () => { clearTimeout(t); t = setTimeout(() => { state.q = search.value; state.page = 0; renderAll(); }, 150); };
+  // filter chips: remove one / clear all
+  document.getElementById("filters").addEventListener("click", e => {
+    const x = e.target.closest(".chip-x");
+    if (x) { filters.splice(+x.dataset.i, 1); refresh(); return; }
+    if (e.target.closest("[data-clear]")) { filters = []; refresh(); }
+  });
 
-  document.getElementById("prev").onclick = () => { state.page--; renderDomains(filtered()); };
-  document.getElementById("next").onclick = () => { state.page++; renderDomains(filtered()); };
-  document.getElementById("pageSize").onchange = e => { state.pageSize = +e.target.value; state.page = 0; renderDomains(filtered()); };
+  // table: header sorting + click-a-cell-to-filter (delegated, survives re-renders)
+  document.getElementById("mainTable").addEventListener("click", e => {
+    const a = e.target.closest("a[data-ft]");
+    if (a) { e.preventDefault(); addFilter(a.dataset.ft, a.dataset.fv); return; }
+    const th = e.target.closest("th[data-key]");
+    if (th) {
+      const sort = activeSort(), key = th.dataset.key;
+      if (sort.key === key) sort.asc = !sort.asc;
+      else { sort.key = key; sort.asc = ASC_KEYS.has(key); }
+      renderActive();
+    }
+  });
+
+  let af = 0;
+  window.addEventListener("scroll", () => { if (!af) af = requestAnimationFrame(() => { af = 0; updateWindow(false); }); }, { passive: true });
+  window.addEventListener("resize", () => { setStick(); updateWindow(true); });
+  setStick();
 }
 
 fetch("data.json", { cache: "no-store" })
@@ -314,10 +406,10 @@ fetch("data.json", { cache: "no-store" })
   .then(j => {
     META = j; DATA = j.domains || [];
     const gen = j.generated ? new Date(j.generated).toLocaleString() : "?";
-    document.getElementById("meta").innerHTML =
-      `${DATA.length.toLocaleString()} domains · top ${(j.limit || DATA.length).toLocaleString()} of Tranco · generated ${esc(gen)}`;
+    document.getElementById("meta").textContent =
+      `${DATA.length.toLocaleString()} domains · top ${(j.limit || DATA.length).toLocaleString()} of Tranco · generated ${gen}`;
     initControls();
-    renderAll();
+    refresh();
   })
   .catch(err => {
     document.getElementById("error").style.display = "block";
