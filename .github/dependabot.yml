@@ -3,7 +3,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "annually"
+      interval: "yearly"
     groups:
       all-actions:
         patterns:
