@@ -172,14 +172,31 @@ let winStart = -1, winEnd = -1;
 let needMeasure = true;
 const OVERSCAN = 8;
 
+// Per-tab default sort. Single source of truth: `state` below is seeded from
+// it, and the URL omits the sort param whenever a tab is at its default.
+const DEFAULT_SORT = {
+  domains: { key: "rank",  asc: true  },
+  reg:     { key: "count", asc: false },
+  dns:     { key: "count", asc: false },
+  tld:     { key: "count", asc: false },
+};
+const SORT_STATE_KEY = { domains: "domSort", reg: "regSort", dns: "dnsSort", tld: "tldSort" };
+// Columns each tab may sort by (guards against bogus ?sort= values in the URL).
+const AGG_SORT_KEYS = ["_rank", "name", "count", "_share", "_cum"];
+const SORT_KEYS = {
+  domains: ["rank", "domain", "tld", "registrar", "dns_host"],
+  reg: AGG_SORT_KEYS, dns: AGG_SORT_KEYS, tld: AGG_SORT_KEYS,
+};
 const state = {
-  domSort: { key: "rank", asc: true },
-  regSort: { key: "count", asc: false },
-  dnsSort: { key: "count", asc: false },
-  tldSort: { key: "count", asc: false },
+  domSort: { ...DEFAULT_SORT.domains },
+  regSort: { ...DEFAULT_SORT.reg },
+  dnsSort: { ...DEFAULT_SORT.dns },
+  tldSort: { ...DEFAULT_SORT.tld },
 };
 const ASC_KEYS = new Set(["name", "_rank", "rank", "domain", "tld", "registrar", "dns_host"]);
 const FTYPE_LABEL = { domain: "Domain", registrar: "Registrar", dns: "DNS", tld: "TLD" };
+const TABS = ["domains", "reg", "dns", "tld"];
+const FILTER_TYPES = ["domain", "registrar", "dns", "tld"];
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
@@ -363,7 +380,50 @@ function renderFilters() {
 function addFilter(type, value) {
   if (filters.some(f => f.type === type && f.value === value)) return;  // already applied
   filters.push({ type, value });
+  pushUrl(false);
   refresh();
+}
+
+// ---- URL <-> state sync (shareable links + back/forward) -----------------
+// The active tab, filters, and the active tab's column sort live in the query
+// string, e.g. ?tab=reg&registrar=MarkMonitor&tld=com&sort=-_share
+// Each filter dimension is its own repeatable param, which mirrors the filter
+// model exactly (OR within a param, AND across params). Sort is encoded as
+// `key` (ascending) or `-key` (descending), for the active tab only — that's
+// the only table on screen. The default tab (domains), an empty filter set,
+// and a tab sitting at its default sort are all omitted for tidy URLs.
+function pushUrl(replace) {
+  const p = new URLSearchParams();
+  if (activeTab !== "domains") p.set("tab", activeTab);
+  for (const f of filters) p.append(f.type, f.value);
+  const sort = activeSort(), def = DEFAULT_SORT[activeTab];
+  if (sort.key !== def.key || sort.asc !== def.asc) p.set("sort", (sort.asc ? "" : "-") + sort.key);
+  const qs = p.toString();
+  const url = location.pathname + (qs ? "?" + qs : "");
+  history[replace ? "replaceState" : "pushState"](null, "", url);
+}
+
+function readUrl() {
+  const p = new URLSearchParams(location.search);
+  const tab = p.get("tab");
+  activeTab = TABS.includes(tab) ? tab : "domains";
+  filters = [];
+  for (const type of FILTER_TYPES)
+    for (const value of p.getAll(type))
+      if (!filters.some(f => f.type === type && f.value === value))
+        filters.push({ type, value });
+
+  // Apply the active tab's sort (or reset it to default when absent/invalid,
+  // so the table always matches the URL after back/forward).
+  const raw = p.get("sort") || "";
+  const asc = raw[0] !== "-";
+  const key = asc ? raw : raw.slice(1);
+  const def = DEFAULT_SORT[activeTab];
+  state[SORT_STATE_KEY[activeTab]] = SORT_KEYS[activeTab].includes(key) ? { key, asc } : { ...def };
+}
+
+function syncTabButtons() {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === activeTab));
 }
 
 // ---- summary cards + tab badges + full refresh --------------------------
@@ -390,7 +450,8 @@ function refresh() {
 function switchTab(tab) {
   if (tab === activeTab) return;
   activeTab = tab;
-  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+  syncTabButtons();
+  pushUrl(false);
   renderActive();
 }
 
@@ -446,8 +507,16 @@ function initControls() {
   // filter chips: remove one / clear all
   document.getElementById("filters").addEventListener("click", e => {
     const x = e.target.closest(".chip-x");
-    if (x) { filters.splice(+x.dataset.i, 1); refresh(); return; }
-    if (e.target.closest("[data-clear]")) { filters = []; refresh(); }
+    if (x) { filters.splice(+x.dataset.i, 1); pushUrl(false); refresh(); return; }
+    if (e.target.closest("[data-clear]")) { filters = []; pushUrl(false); refresh(); }
+  });
+
+  // Back/forward: re-hydrate tab + filters from the URL and re-render. No
+  // pushUrl here — popstate is the browser already moving through history.
+  window.addEventListener("popstate", () => {
+    readUrl();
+    syncTabButtons();
+    refresh();
   });
 
   // table: header sorting + click-a-cell-to-filter (delegated, survives re-renders)
@@ -459,6 +528,7 @@ function initControls() {
       const sort = activeSort(), key = th.dataset.key;
       if (sort.key === key) sort.asc = !sort.asc;
       else { sort.key = key; sort.asc = ASC_KEYS.has(key); }
+      pushUrl(false);
       renderActive();
     }
   });
@@ -487,7 +557,10 @@ fetch("data.json", { cache: "no-store" })
     const gen = j.generated ? new Date(j.generated).toLocaleString() : "?";
     document.getElementById("meta").textContent =
       `${DATA.length.toLocaleString()} domains · top ${(j.limit || DATA.length).toLocaleString()} of Tranco · generated ${gen}`;
+    readUrl();          // hydrate tab + filters from the URL (shareable links)
     initControls();
+    syncTabButtons();   // reflect the active tab on the buttons
+    pushUrl(true);      // canonicalize the URL (drop unknown/duplicate params)
     refresh();
   })
   .catch(err => {
