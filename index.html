@@ -203,15 +203,27 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
-// The value of a record along a filter dimension (matches the aggregate keys).
-function fieldFor(type, d) {
-  return type === "domain" ? d.domain
-    : type === "registrar" ? (d.registrar || "Unknown")
-    : type === "dns" ? (d.dns_host || "Unknown")
-    : d.tld;
+// A domain may delegate DNS to more than one provider (e.g. bing.com uses both
+// NS1 (IBM) and Azure DNS). `dns_hosts` holds every provider; `dns_host` is kept
+// as the dominant one for back-compat / sorting. Fall back to it for old data.
+function dnsHostsOf(d) {
+  return (d.dns_hosts && d.dns_hosts.length) ? d.dns_hosts : [d.dns_host || "Unknown"];
+}
+
+// The value(s) of a record along a filter dimension (matches the aggregate
+// keys). Every dimension is multi-valued so the same code path handles the
+// DNS case, where a domain can belong to several provider buckets at once.
+function valuesFor(type, d) {
+  return type === "domain" ? [d.domain]
+    : type === "registrar" ? [d.registrar || "Unknown"]
+    : type === "dns" ? dnsHostsOf(d)
+    : [d.tld];
 }
 
 // ---- filtering: OR within a dimension, AND across dimensions -------------
+// A record matches a dimension if ANY of its values for that dimension is in
+// the filter set — so filtering by "Azure DNS" keeps bing.com even though its
+// dominant provider is NS1 (IBM).
 function filtered() {
   if (!filters.length) return DATA;
   const groups = new Map();
@@ -220,17 +232,22 @@ function filtered() {
     groups.get(f.type).add(f.value);
   }
   return DATA.filter(d => {
-    for (const [type, vals] of groups) if (!vals.has(fieldFor(type, d))) return false;
+    for (const [type, vals] of groups)
+      if (!valuesFor(type, d).some(v => vals.has(v))) return false;
     return true;
   });
 }
 
 // ---- aggregation & sorting ----------------------------------------------
-function aggregate(rows, keyFn) {
+// keysFn returns the list of buckets a row belongs to (usually one, but a
+// multi-provider domain contributes to each of its DNS buckets).
+function aggregate(rows, keysFn) {
   const m = new Map();
   for (const r of rows) {
-    const k = keyFn(r) || "Unknown";
-    m.set(k, (m.get(k) || 0) + 1);
+    for (const raw of keysFn(r)) {
+      const k = raw || "Unknown";
+      m.set(k, (m.get(k) || 0) + 1);
+    }
   }
   return [...m.entries()].map(([name, count]) => ({ name, count }));
 }
@@ -290,7 +307,7 @@ function buildDomains() {
     `<td>${fcell("domain", d.domain)}</td>` +
     `<td>${fcell("tld", d.tld, "tag")}</td>` +
     `<td>${fcell("registrar", d.registrar || "Unknown")}</td>` +
-    `<td>${fcell("dns", d.dns_host || "Unknown")}</td></tr>`;
+    `<td>${dnsHostsOf(d).map(h => fcell("dns", h)).join('<span class="muted">, </span>')}</td></tr>`;
   return { head: headHtml(cols, state.domSort), cols, rows, renderer, count: rows.length, noun: "domains" };
 }
 
@@ -314,9 +331,9 @@ function activeSort() {
 
 function renderActive() {
   const b = activeTab === "domains" ? buildDomains()
-    : activeTab === "reg" ? buildAgg(d => d.registrar, "Registrar", state.regSort, "registrar")
-    : activeTab === "dns" ? buildAgg(d => d.dns_host, "DNS Host", state.dnsSort, "dns")
-    : buildAgg(d => d.tld, "TLD", state.tldSort, "tld");
+    : activeTab === "reg" ? buildAgg(d => [d.registrar], "Registrar", state.regSort, "registrar")
+    : activeTab === "dns" ? buildAgg(dnsHostsOf, "DNS Host", state.dnsSort, "dns")
+    : buildAgg(d => [d.tld], "TLD", state.tldSort, "tld");
 
   hideRawPopover();          // the hovered row is about to be replaced
   activeRows = b.rows;
@@ -432,16 +449,19 @@ function refresh() {
   setStick();               // chip rows can change the tab bar height
   const rows = filtered();
   const uniq = f => new Set(rows.map(f)).size;
+  // Distinct values across a multi-valued dimension (DNS hosts can repeat per row).
+  const uniqMulti = f => { const s = new Set(); for (const r of rows) for (const v of f(r)) s.add(v); return s.size; };
+  const nDns = uniqMulti(dnsHostsOf);
   document.getElementById("cards").innerHTML = [
     [rows.length.toLocaleString(), "Domains"],
     [uniq(d => d.registrar), "Registrars"],
-    [uniq(d => d.dns_host), "DNS Hosts"],
+    [nDns, "DNS Hosts"],
     [uniq(d => d.tld), "TLDs"],
   ].map(([n, l]) => `<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
   document.getElementById("b-domains").textContent = rows.length.toLocaleString();
   document.getElementById("b-reg").textContent = uniq(d => d.registrar).toLocaleString();
-  document.getElementById("b-dns").textContent = uniq(d => d.dns_host).toLocaleString();
+  document.getElementById("b-dns").textContent = nDns.toLocaleString();
   document.getElementById("b-tld").textContent = uniq(d => d.tld).toLocaleString();
   renderActive();
 }
@@ -474,7 +494,7 @@ function showRawPopover(row, clientX) {
         (d.registrar ? `<div class="map">mapped → ${esc(d.registrar)}</div>` : "") + `</dd>` +
       `<dt>IANA ID</dt><dd>${d.iana_id ? esc(d.iana_id) : '<span class="muted">—</span>'}</dd>` +
       `<dt>Nameservers</dt><dd>${ns}` +
-        (d.dns_host ? `<div class="map">mapped → ${esc(d.dns_host)}</div>` : "") + `</dd>` +
+        `<div class="map">mapped → ${esc(dnsHostsOf(d).join(", "))}</div></dd>` +
     `</dl>`;
 
   // Show (once), then anchor below the row near the cursor and clamp/flip

@@ -254,12 +254,16 @@ def registrable_of_ns(host: str) -> str:
     return last2
 
 
-def dns_provider_for(nameservers) -> str:
-    """Map a set of nameserver hostnames to a provider label."""
-    if not nameservers:
-        return "Unknown"
+def dns_providers_for(nameservers) -> list:
+    """Map a nameserver set to the list of *distinct* DNS providers behind it.
+
+    A domain can delegate to more than one provider (e.g. bing.com uses both
+    NS1 (IBM) and Azure DNS), so we return every provider present rather than
+    collapsing to a single winner. Ordered by how many nameservers point at
+    each provider (most first), then alphabetically, so element 0 is the
+    dominant provider."""
     votes = {}
-    for ns in nameservers:
+    for ns in nameservers or []:
         host = ns.strip(".").lower()
         label = None
         for pat, name in DNS_PROVIDERS:
@@ -271,8 +275,13 @@ def dns_provider_for(nameservers) -> str:
             # which is usually the hosting company / self-hosted zone.
             label = registrable_of_ns(host)
         votes[label] = votes.get(label, 0) + 1
-    # Most common label across the nameserver set.
-    return max(votes.items(), key=lambda kv: (kv[1], kv[0]))[0]
+    return [name for name, _ in sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def dns_provider_for(nameservers) -> str:
+    """The single dominant DNS provider label (element 0 of the full list)."""
+    providers = dns_providers_for(nameservers)
+    return providers[0] if providers else "Unknown"
 
 
 def normalize_registrar(name: str) -> str:
@@ -464,17 +473,18 @@ def rdap_lookup(domain: str, tld_map: dict, timeout: float, max_retries: int = 3
 # DNS
 # ---------------------------------------------------------------------------
 def dns_lookup(domain: str):
-    """Return (nameservers, provider_label)."""
+    """Return (nameservers, dns_hosts) where dns_hosts is the list of distinct
+    providers behind the nameserver set (a domain may use several)."""
     if not _HAVE_DNSPYTHON:
-        return [], "Unknown (no dnspython)"
+        return [], ["Unknown (no dnspython)"]
     try:
         answer = resolver().resolve(domain, "NS")
         nameservers = sorted({r.target.to_text().strip(".").lower() for r in answer})
-        return nameservers, dns_provider_for(nameservers)
+        return nameservers, dns_providers_for(nameservers) or ["Unknown"]
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
-        return [], "None / No NS"
+        return [], ["None / No NS"]
     except (dns.exception.DNSException, Exception):  # noqa: BLE001 - keep worker alive
-        return [], "Unknown (lookup failed)"
+        return [], ["Unknown (lookup failed)"]
 
 
 # ---------------------------------------------------------------------------
@@ -482,7 +492,7 @@ def dns_lookup(domain: str):
 # ---------------------------------------------------------------------------
 def process_domain(rank, domain, tld_map, timeout):
     reg = rdap_lookup(domain, tld_map, timeout)
-    nameservers, dns_host = dns_lookup(domain)
+    nameservers, dns_hosts = dns_lookup(domain)
     rec = {
         "rank": rank,
         "domain": domain,
@@ -490,7 +500,8 @@ def process_domain(rank, domain, tld_map, timeout):
         "registrar": reg["registrar"],
         "registrar_raw": reg.get("registrar_raw"),
         "iana_id": reg.get("iana_id"),
-        "dns_host": dns_host,
+        "dns_host": dns_hosts[0] if dns_hosts else "Unknown",
+        "dns_hosts": dns_hosts,
         "nameservers": nameservers,
     }
     if reg.get("error"):
@@ -566,7 +577,8 @@ def main():
                     except Exception as exc:  # noqa: BLE001
                         rec = {"rank": None, "domain": dom, "tld": tld_of(dom),
                                "registrar": "Unknown", "dns_host": "Unknown",
-                               "nameservers": [], "error": str(exc)[:120]}
+                               "dns_hosts": ["Unknown"], "nameservers": [],
+                               "error": str(exc)[:120]}
                     with lock:
                         results[dom] = rec
                         done += 1
@@ -596,13 +608,15 @@ def main():
         "domains": ordered,
     }
     with open(args.output, "w") as fh:
-        json.dump(out, fh, indent=None, separators=(",", ":"))
+        json.dump(out, fh, indent=4)
     print(f"[done] wrote {len(ordered)} records to {args.output}", file=sys.stderr)
 
     # Quick console summary.
     from collections import Counter
     reg_counts = Counter(r["registrar"] for r in ordered)
-    dns_counts = Counter(r["dns_host"] for r in ordered)
+    # Count every provider a domain uses, so multi-provider domains (e.g. NS1 +
+    # Azure) are tallied under each — matching how the dashboard aggregates.
+    dns_counts = Counter(h for r in ordered for h in (r.get("dns_hosts") or [r["dns_host"]]))
     print("\nTop 10 registrars:", file=sys.stderr)
     for name, n in reg_counts.most_common(10):
         print(f"  {n:6d}  {name}", file=sys.stderr)
