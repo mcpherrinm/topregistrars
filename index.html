@@ -11,6 +11,9 @@
     --bar: #2d5a8c; --stick: 0px;
   }
   * { box-sizing: border-box; }
+  /* Reserve the scrollbar gutter so the page never shifts sideways when the
+     vertical scrollbar appears/disappears as the row count changes. */
+  html { scrollbar-gutter: stable; }
   html, body { margin: 0; }
   body {
     background: var(--bg); color: var(--fg);
@@ -48,7 +51,11 @@
   }
   .tab:hover { color: var(--fg); background: var(--panel); }
   .tab.active { color: var(--fg); background: var(--panel); border-color: var(--line); }
-  .badge { background: var(--panel2); color: var(--muted); border-radius: 20px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+  /* Fixed min-width + tabular figures so a changing count (e.g. as the Top-N
+     slider moves) never re-widens the badge and shoves the rest of the tab bar
+     — including the slider — sideways. Sized to hold the largest value (50,000). */
+  .badge { background: var(--panel2); color: var(--muted); border-radius: 20px; padding: 1px 8px; font-size: 11px; font-weight: 600;
+    min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
   .tab.active .badge { background: var(--accent); color: #04121f; }
 
   /* Applied-filter chips (replaces the old search box + TLD dropdown). */
@@ -71,6 +78,18 @@
   .chip-x:hover { background: var(--line); color: var(--fg); }
   .clear-all { background: transparent; border: 0; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 4px; }
   .clear-all:hover { text-decoration: underline; }
+
+  /* Top-N control: limits every tab to the most popular N domains (by Tranco
+     rank). Log-scaled slider for reach across 1..N, plus an exact number box. */
+  .topn { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; color: var(--muted); font-size: 12px; }
+  .topn > label { font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .topn input[type=range] { width: 150px; accent-color: var(--accent); cursor: pointer; }
+  .topn input[type=number] {
+    width: 76px; background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .topn input[type=number]:focus { outline: none; border-color: var(--accent); }
+  .topn .topn-max { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
   main { max-width: 1400px; margin: 0 auto; padding: 0 24px 40px; }
   .caption { font-size: 12px; padding: 12px 2px 8px; }
@@ -142,6 +161,12 @@
     <button class="tab" data-tab="dns">By DNS Host <span class="badge" id="b-dns"></span></button>
     <button class="tab" data-tab="tld">By TLD <span class="badge" id="b-tld"></span></button>
   </div>
+  <div class="topn" id="topn" title="Limit every table to the most popular N domains">
+    <label for="topnNum">Top</label>
+    <input type="range" id="topnRange" min="0" max="1000" step="1" aria-label="Top N domains (slider)">
+    <input type="number" id="topnNum" min="1" aria-label="Top N domains (exact)">
+    <span class="topn-max muted" id="topnMax"></span>
+  </div>
   <div class="filters" id="filters"></div>
 </nav>
 
@@ -162,6 +187,8 @@ let hoverDomain = null;     // domain currently shown in the hover info box
 let META = {};
 let activeTab = "domains";
 let filters = [];          // [{type:"domain|registrar|dns|tld", value}]
+let maxRank = 0;           // highest Tranco rank in the dataset (the "all" ceiling)
+let topN = 0;              // keep only domains ranked <= topN; set to maxRank on load
 
 // virtual-scroll state for the currently shown table
 let activeRows = [];
@@ -225,13 +252,15 @@ function valuesFor(type, d) {
 // the filter set — so filtering by "Azure DNS" keeps bing.com even though its
 // dominant provider is NS1 (IBM).
 function filtered() {
-  if (!filters.length) return DATA;
+  const cap = topN < maxRank;                    // false ⇒ "all", skip the rank test
+  if (!filters.length && !cap) return DATA;
   const groups = new Map();
   for (const f of filters) {
     if (!groups.has(f.type)) groups.set(f.type, new Set());
     groups.get(f.type).add(f.value);
   }
   return DATA.filter(d => {
+    if (cap && d.rank > topN) return false;
     for (const [type, vals] of groups)
       if (!valuesFor(type, d).some(v => vals.has(v))) return false;
     return true;
@@ -401,6 +430,40 @@ function addFilter(type, value) {
   refresh();
 }
 
+// ---- top-N control -------------------------------------------------------
+// The slider is log-scaled so the useful low end (top 10 … top 1k) gets as much
+// travel as the high end. The number box below the floor still works — it drives
+// topN directly and just pins the slider to its minimum. Live updates re-render
+// on rAF (setTopN) so dragging stays smooth; a single history entry is pushed on
+// release (`change`), not on every intermediate `input`.
+const TOPN_MIN = 10;       // slider floor (the number box can still go to 1)
+const TOPN_STEPS = 1000;   // slider granularity
+function topnPosToN(pos) {
+  const t = Math.max(0, Math.min(1, pos / TOPN_STEPS));
+  return Math.max(1, Math.min(maxRank, Math.round(TOPN_MIN * Math.pow(maxRank / TOPN_MIN, t))));
+}
+function topnNToPos(n) {
+  n = Math.max(TOPN_MIN, Math.min(maxRank, n));
+  return Math.round(TOPN_STEPS * Math.log(n / TOPN_MIN) / Math.log(maxRank / TOPN_MIN));
+}
+
+let topnRAF = 0;
+function setTopN(n) {
+  n = Math.max(1, Math.min(maxRank, Math.round(n)));
+  if (n === topN) return;
+  topN = n;
+  if (topnRAF) return;                             // coalesce a burst of drag events
+  topnRAF = requestAnimationFrame(() => { topnRAF = 0; refresh(); });
+}
+
+// Reflect the current topN onto both inputs (after URL load / back-forward).
+function syncTopnControls() {
+  const range = document.getElementById("topnRange");
+  const num = document.getElementById("topnNum");
+  if (range) { range.max = TOPN_STEPS; range.value = topnNToPos(topN); }
+  if (num) { num.max = maxRank; num.value = topN; }
+}
+
 // ---- URL <-> state sync (shareable links + back/forward) -----------------
 // The active tab, filters, and the active tab's column sort live in the query
 // string, e.g. ?tab=reg&registrar=MarkMonitor&tld=com&sort=-_share
@@ -413,6 +476,7 @@ function pushUrl(replace) {
   const p = new URLSearchParams();
   if (activeTab !== "domains") p.set("tab", activeTab);
   for (const f of filters) p.append(f.type, f.value);
+  if (topN < maxRank) p.set("top", topN);         // omitted when showing all
   const sort = activeSort(), def = DEFAULT_SORT[activeTab];
   if (sort.key !== def.key || sort.asc !== def.asc) p.set("sort", (sort.asc ? "" : "-") + sort.key);
   const qs = p.toString();
@@ -429,6 +493,9 @@ function readUrl() {
     for (const value of p.getAll(type))
       if (!filters.some(f => f.type === type && f.value === value))
         filters.push({ type, value });
+
+  const top = parseInt(p.get("top"), 10);
+  topN = (Number.isFinite(top) && top >= 1) ? Math.min(top, maxRank) : maxRank;
 
   // Apply the active tab's sort (or reset it to default when absent/invalid,
   // so the table always matches the URL after back/forward).
@@ -524,6 +591,24 @@ function setStick() {
 function initControls() {
   document.querySelectorAll(".tab").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
 
+  // top-N slider (log-scaled) + exact number box, kept in sync with each other.
+  const topnRange = document.getElementById("topnRange");
+  const topnNum = document.getElementById("topnNum");
+  topnRange.addEventListener("input", () => { setTopN(topnPosToN(+topnRange.value)); topnNum.value = topN; });
+  topnRange.addEventListener("change", () => pushUrl(false));   // one history entry per drag
+  topnNum.addEventListener("input", () => {
+    const v = parseInt(topnNum.value, 10);
+    if (!Number.isFinite(v)) return;                            // mid-edit / empty: wait
+    setTopN(v);
+    topnRange.value = topnNToPos(topN);
+  });
+  topnNum.addEventListener("change", () => {
+    const v = parseInt(topnNum.value, 10);
+    setTopN(Number.isFinite(v) && v >= 1 ? v : maxRank);        // blank/invalid ⇒ reset to all
+    syncTopnControls();
+    pushUrl(false);
+  });
+
   // filter chips: remove one / clear all
   document.getElementById("filters").addEventListener("click", e => {
     const x = e.target.closest(".chip-x");
@@ -536,6 +621,7 @@ function initControls() {
   window.addEventListener("popstate", () => {
     readUrl();
     syncTabButtons();
+    syncTopnControls();
     refresh();
   });
 
@@ -574,12 +660,16 @@ fetch("data.json", { cache: "no-store" })
   .then(j => {
     META = j; DATA = j.domains || [];
     byDomain = new Map(DATA.map(d => [d.domain, d]));
+    maxRank = DATA.reduce((m, d) => d.rank > m ? d.rank : m, 0) || DATA.length;
+    topN = maxRank;     // default: show all (readUrl may narrow it from ?top=)
+    document.getElementById("topnMax").textContent = "of " + maxRank.toLocaleString();
     const gen = j.generated ? new Date(j.generated).toLocaleString() : "?";
     document.getElementById("meta").textContent =
       `${DATA.length.toLocaleString()} domains · top ${(j.limit || DATA.length).toLocaleString()} of Tranco · generated ${gen}`;
-    readUrl();          // hydrate tab + filters from the URL (shareable links)
+    readUrl();          // hydrate tab + filters + top-N from the URL (shareable links)
     initControls();
     syncTabButtons();   // reflect the active tab on the buttons
+    syncTopnControls(); // reflect the active top-N on the slider + number box
     pushUrl(true);      // canonicalize the URL (drop unknown/duplicate params)
     refresh();
   })
